@@ -42,6 +42,17 @@ import { takeUntil } from 'rxjs/operators';
             </button>
           </div>
 
+      <!-- Mobile Playlist Selector (add to template) -->
+      <div class="mobile-playlist-selector" *ngIf="playlists && (playlists | keyvalue).length > 0">
+        <button 
+          *ngFor="let item of playlists | keyvalue"
+          (click)="selectPlaylist(item.key)"
+          [class.active]="selectedPlaylist === item.key"
+          class="playlist-chip">
+          {{ item.key }}
+        </button>
+      </div>
+
           <div class="playlists-list">
             <div 
               *ngFor="let playlist of playlists" 

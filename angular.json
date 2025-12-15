@@ -77,10 +77,13 @@
           "builder": "@angular-devkit/build-angular:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "archive-player:build:production"
+              "browserTarget": "archive-player:build:production"
             },
             "development": {
-              "buildTarget": "archive-player:build:development"
+              "browserTarget": "archive-player:build:development",
+              "host": "127.0.0.1",
+              "port": 4200,
+              "disableHostCheck": true
             }
           },
           "defaultConfiguration": "development"
