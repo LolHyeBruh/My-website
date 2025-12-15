@@ -1,11 +1,19 @@
 import { Injectable } from '@angular/core';
 
+interface CacheEntry {
+  value: any;
+  timestamp: number;
+  duration: number;
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class CacheService {
-  private memoryCache = new Map<string, { value: any; timestamp: number; duration?: number }>();
-  private readonly CACHE_DURATION = 5 * 60 * 1000;
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  private memoryCache = new Map<string, CacheEntry>();
+
+  constructor() {}
 
   set(key: string, value: any, duration?: number): void {
     this.memoryCache.set(key, {
@@ -15,7 +23,7 @@ export class CacheService {
     });
   }
 
-  get<T>(key: string): T | null {
+  get<T = any>(key: string): T | null {
     const cached = this.memoryCache.get(key);
     if (!cached) return null;
 
@@ -28,11 +36,7 @@ export class CacheService {
     return cached.value as T;
   }
 
-  has(key: string): boolean {
-    return this.memoryCache.has(key);
-  }
-
-  remove(key: string): void {
+  invalidate(key: string): void {
     this.memoryCache.delete(key);
   }
 
@@ -40,24 +44,16 @@ export class CacheService {
     this.memoryCache.clear();
   }
 
-  getLocalStorage(key: string): any {
-    try {
-      const item = localStorage.getItem(key);
-      return item ? JSON.parse(item) : null;
-    } catch {
-      return null;
-    }
-  }
+  has(key: string): boolean {
+    const cached = this.memoryCache.get(key);
+    if (!cached) return false;
 
-  setLocalStorage(key: string, value: any): void {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      console.warn('LocalStorage quota exceeded or disabled');
+    const cacheDuration = cached.duration || this.CACHE_DURATION;
+    if (Date.now() - cached.timestamp > cacheDuration) {
+      this.memoryCache.delete(key);
+      return false;
     }
-  }
 
-  removeLocalStorage(key: string): void {
-    localStorage.removeItem(key);
+    return true;
   }
 }

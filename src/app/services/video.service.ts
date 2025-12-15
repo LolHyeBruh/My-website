@@ -72,8 +72,8 @@ export class VideoService {
   }
 
   async getVideoDuration(url: string): Promise<number> {
-    const cached = this.cacheService.get<number>('duration_' + url);
-    if (cached !== null) return cached;
+    const cached = this.cacheService.get('duration_' + url) as number | null;
+      if (cached !== null) return cached;
 
     return new Promise((resolve) => {
       const tempVideo = document.createElement('video');

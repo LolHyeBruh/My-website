@@ -1,21 +1,31 @@
 export interface Video {
   url: string;
   title: string;
-  description?: string;
-  duration?: string;
-  category?: string;
-  views?: number;
-  addedAt?: number;
-  lastTime?: number;
-  _hasCountedView?: boolean;
+  description: string;
+  duration: string; // Format: "10:30"
+  addedAt: number; // Timestamp
+  views: number;
+  category: string;
+  lastTime: number; // Resume time
+  creator?: string; // Creator name/ID
+  thumbnail?: string; // Auto-generated or provided
+  playlistId?: string; // Associated playlist
 }
 
 export interface PlaylistData {
   videos: Video[];
-  sort?: string;
-  views?: Record<string, number>;
+  sort: 'asc' | 'desc';
+  views: Record<string, number>;
+  createdAt?: number;
+  name?: string;
+  description?: string;
 }
 
 export interface Playlist {
-  [playlistName: string]: Video[];
+  id: string;
+  name: string;
+  description: string;
+  videoCount: number;
+  createdAt: number;
+  updatedAt: number;
 }

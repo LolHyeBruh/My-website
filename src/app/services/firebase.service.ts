@@ -1,10 +1,19 @@
+import { User } from 'firebase/auth';
 import { Injectable } from '@angular/core';
 import { initializeApp } from 'firebase/app';
-import { getAuth, Auth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, Firestore, collection, doc, getDocs, setDoc, deleteDoc, updateDoc, DocumentData, writeBatch, getDoc, Transaction, runTransaction } from 'firebase/firestore';
+import { 
+  getAuth, Auth, signInWithPopup, GoogleAuthProvider, 
+  onAuthStateChanged, signOut 
+} from 'firebase/auth';
+import { 
+  getFirestore, Firestore, collection, doc, getDocs, 
+  setDoc, deleteDoc, updateDoc, DocumentData, writeBatch, 
+  getDoc, Transaction, runTransaction, query, where 
+} from 'firebase/firestore';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Video, PlaylistData } from '../models/video.model';
+import { Video, PlaylistData, Playlist } from '../models/video.model';
+import { CacheService } from './cache.service';
 
 @Injectable({
   providedIn: 'root'
@@ -12,28 +21,32 @@ import { Video, PlaylistData } from '../models/video.model';
 export class FirebaseService {
   private auth: Auth;
   private db: Firestore;
-  private isAdminSubject = new BehaviorSubject<boolean>(false);
+  private isAdminSubject = new BehaviorSubject(false);
   public isAdmin$ = this.isAdminSubject.asObservable();
-  private currentUserSubject = new BehaviorSubject<any>(null);
+  
+  private currentUserSubject = new BehaviorSubject<User | null>(null);
   public currentUser$ = this.currentUserSubject.asObservable();
+  
+  private isLoggedInSubject = new BehaviorSubject(false);
+  public isLoggedIn$ = this.isLoggedInSubject.asObservable();
 
   private readonly ADMIN_UID = "FTvdwrjqeCZi9TAZxZXnoWccnDJ3";
   private readonly SHARED_USER_ID = 'shared_user';
 
-  constructor() {
+  constructor(private cacheService: CacheService) {
     const app = initializeApp(environment.firebase);
     this.auth = getAuth(app);
     this.db = getFirestore(app);
     this.setupAuthListener();
   }
 
-  private isLoggedInSubject = new BehaviorSubject(false);
-  public isLoggedIn$ = this.isLoggedInSubject.asObservable();
+  // ===== AUTH METHODS =====
 
   private setupAuthListener(): void {
-    onAuthStateChanged(this.auth, async (user) => {
+    onAuthStateChanged(this.auth, async (user: User | null) => {
       this.currentUserSubject.next(user);
       this.isLoggedInSubject.next(!!user);
+      
       if (user && user.uid === this.ADMIN_UID) {
         this.isAdminSubject.next(true);
         console.log('Admin user logged in');
@@ -54,57 +67,19 @@ export class FirebaseService {
     }
   }
 
-  async createPlaylistIfNotExists(playlistName: string): Promise<void> {
+  async logout(): Promise<void> {
     try {
-      const playlistRef = doc(
-        this.db,
-        'users',
-        this.SHARED_USER_ID,
-        'playlists',
-        playlistName
-      );
-
-      const playlistDoc = await getDoc(playlistRef);
-
-      if (!playlistDoc.exists()) {
-        await setDoc(playlistRef, {
-          videos: [],
-          sort: 'asc',
-          views: {}
-        });
-        console.log(`Created playlist: ${playlistName}`);
-      }
+      await signOut(this.auth);
+      this.cacheService.clear();
     } catch (error) {
-      console.error('Error creating playlist:', error);
+      console.error('Logout error:', error);
       throw error;
     }
   }
 
-  async loadPlaylists(): Promise<Record<string, Video[]>> {
-    try {
-      const playlistsCollectionRef = collection(
-        this.db,
-        'users',
-        this.SHARED_USER_ID,
-        'playlists'
-      );
+  // ===== PLAYLIST METHODS =====
 
-      const snapshot = await getDocs(playlistsCollectionRef);
-      const playlists: Record<string, Video[]> = {};
-
-      for (const doc of snapshot.docs) {
-        const data = doc.data() as PlaylistData;
-        playlists[doc.id] = data.videos || [];
-      }
-
-      return playlists;
-    } catch (error) {
-      console.error('Error loading playlists:', error);
-      return {};
-    }
-  }
-
-  async savePlaylist(playlistName: string, videos: Video[], sort: string = 'asc'): Promise<void> {
+  async createPlaylist(playlistName: string, description: string = ''): Promise<void> {
     try {
       const playlistRef = doc(
         this.db,
@@ -114,24 +89,19 @@ export class FirebaseService {
         playlistName
       );
 
-      const sanitizedVideos = videos.map(v => ({
-        url: v.url || '',
-        title: v.title || '',
-        description: v.description || '',
-        duration: v.duration || '00:00:00',
-        addedAt: v.addedAt || Date.now(),
-        views: v.views || 0,
-        category: v.category || 'Uncategorized',
-        lastTime: v.lastTime || 0
-      }));
+      await setDoc(playlistRef, {
+        videos: [],
+        sort: 'asc',
+        views: {},
+        createdAt: Date.now(),
+        name: playlistName,
+        description: description
+      });
 
-      await setDoc(
-        playlistRef,
-        { videos: sanitizedVideos, sort },
-        { merge: false }
-      );
+      console.log(`Created playlist: ${playlistName}`);
+      this.cacheService.invalidate('playlists');
     } catch (error) {
-      console.error('Error saving playlist:', error);
+      console.error('Error creating playlist:', error);
       throw error;
     }
   }
@@ -145,14 +115,215 @@ export class FirebaseService {
         'playlists',
         playlistName
       );
+
       await deleteDoc(playlistRef);
+      this.cacheService.invalidate('playlists');
+      this.cacheService.invalidate(`playlist_${playlistName}`);
     } catch (error) {
       console.error('Error deleting playlist:', error);
       throw error;
     }
   }
 
-  async updateVideoViews(playlistName: string, videoUrl: string, viewCount: number): Promise<void> {
+  async getPlaylistList(): Promise<Playlist[]> {
+    try {
+      const cached = this.cacheService.get('playlists');
+      if (cached) return cached;
+
+      const playlistsCollectionRef = collection(
+        this.db,
+        'users',
+        this.SHARED_USER_ID,
+        'playlists'
+      );
+
+      const snapshot = await getDocs(playlistsCollectionRef);
+      const playlists: Playlist[] = [];
+
+      for (const doc of snapshot.docs) {
+        const data = doc.data() as PlaylistData;
+        playlists.push({
+          id: doc.id,
+          name: data.name || doc.id,
+          description: data.description || '',
+          videoCount: (data.videos || []).length,
+          createdAt: data.createdAt || Date.now(),
+          updatedAt: data.createdAt || Date.now()
+        });
+      }
+
+      this.cacheService.set('playlists', playlists, 5 * 60 * 1000); // 5 min cache
+      return playlists;
+    } catch (error) {
+      console.error('Error loading playlists:', error);
+      return [];
+    }
+  }
+
+  // ===== VIDEO METHODS =====
+
+  async addVideo(playlistName: string, video: Video): Promise<void> {
+    try {
+      await this.createPlaylistIfNotExists(playlistName);
+
+      const playlistRef = doc(
+        this.db,
+        'users',
+        this.SHARED_USER_ID,
+        'playlists',
+        playlistName
+      );
+
+      const enrichedVideo: Video = {
+        ...video,
+        addedAt: video.addedAt || Date.now(),
+        views: video.views || 0,
+        lastTime: video.lastTime || 0,
+        category: video.category || 'Uncategorized'
+      };
+
+      await runTransaction(this.db, async (transaction) => {
+        const playlistDoc = await transaction.get(playlistRef);
+        const data = (playlistDoc.data() || {}) as PlaylistData;
+        const videos = data.videos || [];
+
+        videos.push(enrichedVideo);
+
+        transaction.update(playlistRef, { 
+          videos,
+          updatedAt: Date.now()
+        });
+      });
+
+      this.cacheService.invalidate(`playlist_${playlistName}`);
+    } catch (error) {
+      console.error('Error adding video:', error);
+      throw error;
+    }
+  }
+
+  async deleteVideo(playlistName: string, videoUrl: string): Promise<void> {
+    try {
+      const playlistRef = doc(
+        this.db,
+        'users',
+        this.SHARED_USER_ID,
+        'playlists',
+        playlistName
+      );
+
+      await runTransaction(this.db, async (transaction) => {
+        const playlistDoc = await transaction.get(playlistRef);
+        const data = (playlistDoc.data() || {}) as PlaylistData;
+        const videos = (data.videos || []).filter(v => v.url !== videoUrl);
+        const views = { ...data.views };
+        delete views[encodeURIComponent(videoUrl)];
+
+        transaction.update(playlistRef, { videos, views });
+      });
+
+      this.cacheService.invalidate(`playlist_${playlistName}`);
+    } catch (error) {
+      console.error('Error deleting video:', error);
+      throw error;
+    }
+  }
+
+  async updateVideo(playlistName: string, videoUrl: string, updates: Partial<Video>): Promise<void> {
+    try {
+      const playlistRef = doc(
+        this.db,
+        'users',
+        this.SHARED_USER_ID,
+        'playlists',
+        playlistName
+      );
+
+      await runTransaction(this.db, async (transaction) => {
+        const playlistDoc = await transaction.get(playlistRef);
+        const data = (playlistDoc.data() || {}) as PlaylistData;
+        const videos = data.videos || [];
+
+        const updatedVideos = videos.map(v => 
+          v.url === videoUrl ? { ...v, ...updates } : v
+        );
+
+        transaction.update(playlistRef, { 
+          videos: updatedVideos,
+          updatedAt: Date.now()
+        });
+      });
+
+      this.cacheService.invalidate(`playlist_${playlistName}`);
+    } catch (error) {
+      console.error('Error updating video:', error);
+      throw error;
+    }
+  }
+
+  async loadPlaylists(): Promise<Record<string, Video[]>> {
+    try {
+      const playlists = await this.getPlaylistList();
+      const result: Record<string, Video[]> = {};
+
+      for (const playlist of playlists) {
+        result[playlist.name] = await this.loadPlaylist(playlist.name);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error loading playlists:', error);
+      return {};
+    }
+  }
+
+  async loadPlaylist(playlistName: string): Promise<Video[]> {
+    try {
+      const cached = this.cacheService.get(`playlist_${playlistName}`);
+      if (cached) return cached;
+
+      const playlistRef = doc(
+        this.db,
+        'users',
+        this.SHARED_USER_ID,
+        'playlists',
+        playlistName
+      );
+
+      const playlistDoc = await getDoc(playlistRef);
+      const data = (playlistDoc.data() || {}) as PlaylistData;
+      const videos = data.videos || [];
+
+      this.cacheService.set(`playlist_${playlistName}`, videos, 5 * 60 * 1000);
+      return videos;
+    } catch (error) {
+      console.error('Error loading playlist:', error);
+      return [];
+    }
+  }
+
+  async createPlaylistIfNotExists(playlistName: string): Promise<void> {
+    try {
+      const playlistRef = doc(
+        this.db,
+        'users',
+        this.SHARED_USER_ID,
+        'playlists',
+        playlistName
+      );
+
+      const playlistDoc = await getDoc(playlistRef);
+      if (!playlistDoc.exists()) {
+        await this.createPlaylist(playlistName);
+      }
+    } catch (error) {
+      console.error('Error checking playlist existence:', error);
+    }
+  }
+
+  // ===== VIEW TRACKING =====
+
+  async updateVideoViews(playlistName: string, videoUrl: string, viewCount: number = 1): Promise<void> {
     try {
       const playlistRef = doc(
         this.db,
@@ -164,14 +335,17 @@ export class FirebaseService {
 
       const encodedUrl = encodeURIComponent(videoUrl);
 
-      await runTransaction(this.db, async (transaction: Transaction) => {
+      await runTransaction(this.db, async (transaction) => {
         const playlistDoc = await transaction.get(playlistRef);
         const data = (playlistDoc.data() || {}) as PlaylistData;
         const views = data.views || {};
 
         views[encodedUrl] = (views[encodedUrl] || 0) + viewCount;
+
         transaction.update(playlistRef, { views });
       });
+
+      this.cacheService.invalidate(`playlist_${playlistName}`);
     } catch (error) {
       console.error('Error updating view count:', error);
     }
@@ -204,6 +378,8 @@ export class FirebaseService {
     }
   }
 
+  // ===== UTILITY METHODS =====
+
   getAuth(): Auth {
     return this.auth;
   }
@@ -218,5 +394,9 @@ export class FirebaseService {
 
   getSharedUserId(): string {
     return this.SHARED_USER_ID;
+  }
+
+  getCurrentUser() {
+    return this.currentUserSubject.value;
   }
 }
