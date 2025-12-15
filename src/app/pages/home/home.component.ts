@@ -76,7 +76,7 @@ import { takeUntil } from 'rxjs/operators';
           <div class="player-section" *ngIf="selectedVideo">
             <app-video-player 
               [video]="selectedVideo"
-              [playlistName]="selectedPlaylist"
+              [playlistName]="selectedPlaylist || ''"
               (onVideoEnd)="onVideoEnd()"
             ></app-video-player>
 
