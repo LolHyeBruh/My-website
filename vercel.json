@@ -3,6 +3,10 @@
   "outputDirectory": "dist/archive-player",
   "cleanUrls": true,
   "trailingSlash": false,
+  "regions": ["iad1"],
+  "env": {
+    "NG_BUILD_MODE": "production"
+  },
   "headers": [
     {
       "source": "/assets/(.*)",
@@ -19,6 +23,19 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=0, must-revalidate"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
         }
       ]
     }
@@ -28,9 +45,5 @@
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ],
-  "env": {
-    "NG_BUILD_MODE": "production"
-  },
-  "regions": ["iad1"]
+  ]
 }

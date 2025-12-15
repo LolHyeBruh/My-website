@@ -27,9 +27,13 @@ export class FirebaseService {
     this.setupAuthListener();
   }
 
+  private isLoggedInSubject = new BehaviorSubject(false);
+  public isLoggedIn$ = this.isLoggedInSubject.asObservable();
+
   private setupAuthListener(): void {
     onAuthStateChanged(this.auth, async (user) => {
       this.currentUserSubject.next(user);
+      this.isLoggedInSubject.next(!!user);
       if (user && user.uid === this.ADMIN_UID) {
         this.isAdminSubject.next(true);
         console.log('Admin user logged in');
