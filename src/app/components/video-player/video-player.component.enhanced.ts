@@ -1,6 +1,6 @@
 import { Component, Input, Output, ViewChild, EventEmitter, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FirebaseService } from '../../services/firebase.service';
+import { FirebaseService } from '../../services/firebase.service.enhanced';
 import { Video } from '../../models/video.model';
 
 @Component({

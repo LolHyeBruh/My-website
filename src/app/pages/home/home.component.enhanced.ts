@@ -1,10 +1,9 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { FirebaseService } from '../../services/firebase.service';
+import { FirebaseService } from '../../services/firebase.service.enhanced';
 import { CacheService } from '../../services/cache.service';
-import { VideoPlayerComponent } from '../../components/video-player/video-player.component';
-import { PlaylistSidebarComponent } from '../../components/playlist-sidebar/playlist-sidebar.component';
+import { VideoPlayerComponent } from '../../components/video-player/video-player.component.enhanced';
 import { Video, Playlist } from '../../models/video.model';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
@@ -16,7 +15,6 @@ import { takeUntil } from 'rxjs/operators';
     CommonModule,
     FormsModule,
     VideoPlayerComponent,
-    PlaylistSidebarComponent
   ],
   template: `
     <div class="home-container">
@@ -42,16 +40,18 @@ import { takeUntil } from 'rxjs/operators';
             </button>
           </div>
 
-      <!-- Mobile Playlist Selector (add to template) -->
-      <div class="mobile-playlist-selector" *ngIf="playlists && (playlists | keyvalue).length > 0">
-        <button 
-          *ngFor="let item of playlists | keyvalue"
-          (click)="selectPlaylist(item.key)"
-          [class.active]="selectedPlaylist === item.key"
-          class="playlist-chip">
-          {{ item.key }}
-        </button>
-      </div>
+          <!-- Playlist Selector -->
+          <div class="playlist-selector-section">
+            <div class="playlist-controls">
+              <label class="playlist-label">Select Playlist:</label>
+              <select [(ngModel)]="selectedPlaylist" (change)="selectPlaylist(selectedPlaylist)" class="playlist-dropdown">
+                <option value="">-- Choose a playlist --</option>
+                <option *ngFor="let playlist of playlists" [value]="playlist.name">
+                  {{ playlist.name }} ({{ playlist.videoCount }} videos)
+                </option>
+              </select>
+            </div>
+          </div>
 
           <div class="playlists-list">
             <div 
@@ -441,6 +441,51 @@ import { takeUntil } from 'rxjs/operators';
       font-size: 12px;
       z-index: 2;
     }
+    
+    .playlist-selector-section {
+      background: #1a1a1a;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border-left: 4px solid #065fd4;
+    }
+
+    .playlist-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .playlist-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #aaa;
+      white-space: nowrap;
+    }
+
+    .playlist-dropdown {
+      flex: 1;
+      max-width: 300px;
+      padding: 10px 14px;
+      background: #2a2a2a;
+      border: 2px solid #065fd4;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .playlist-dropdown:hover {
+      background: #333;
+      border-color: #0544a8;
+    }
+
+    .playlist-dropdown:focus {
+      outline: none;
+      box-shadow: 0 0 12px rgba(6, 95, 212, 0.5);
+    }
 
     .video-card-info {
       padding: 12px;
@@ -510,6 +555,17 @@ import { takeUntil } from 'rxjs/operators';
         align-items: flex-start;
       }
     }
+    @media (max-width: 640px) {
+      .playlist-controls {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .playlist-dropdown {
+        max-width: 100%;
+        width: 100%;
+      }
+    }
   `]
 })
 export class HomeComponent implements OnInit, OnDestroy {
@@ -517,11 +573,16 @@ export class HomeComponent implements OnInit, OnDestroy {
   
   playlists: Playlist[] = [];
   videos: Video[] = [];
-  selectedPlaylist: string | null = null;
+  selectedPlaylist: string = "";
   selectedVideo: Video | null = null;
   currentPlaylistInfo: any = null;
   
   private destroy$ = new Subject<void>();
+
+  // Type guard for Playlist
+  isPlaylist(obj: any): obj is Playlist {
+    return obj && typeof obj === 'object' && Array.isArray(obj.videos);
+  }
 
   constructor(
     private firebaseService: FirebaseService,
